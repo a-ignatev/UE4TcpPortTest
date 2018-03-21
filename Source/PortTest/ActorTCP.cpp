@@ -40,7 +40,6 @@ void AActorTCP::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void AActorTCP::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-
 }
 
 // TCP Server Code
@@ -53,13 +52,7 @@ bool AActorTCP::LaunchTCP()
 	return true;
 }
 
-//Rama's Start TCP Receiver
-bool AActorTCP::StartTCPReceiver(
-	const FString& YourChosenSocketName,
-	const FString& TheIP,
-	const int32 ThePort
-) {
-	//Rama's CreateTCPConnectionListener
+bool AActorTCP::StartTCPReceiver(const FString& YourChosenSocketName, const FString& TheIP, const int32 ThePort) {
 	ListenerSocket = CreateTCPConnectionListener(YourChosenSocketName, TheIP, ThePort);
 
 	//Not created?
@@ -69,9 +62,6 @@ bool AActorTCP::StartTCPReceiver(
 		return false;
 	}
 
-	//Start the Listener! //thread this eventually
-
-
 	UWorld* World = GetWorld();
 	World->GetTimerManager().SetTimer(TCPConnectionListenerTimerHandle, this, &AActorTCP::TCPConnectionListener, 1.0f, true);
 	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, FString::Printf(TEXT("StartTCPReceiver>> Listen socket created")));
@@ -80,19 +70,13 @@ bool AActorTCP::StartTCPReceiver(
 //Format IP String as Number Parts
 bool AActorTCP::FormatIP4ToNumber(const FString& TheIP, uint8(&Out)[4])
 {
-	//IP Formatting
 	TheIP.Replace(TEXT(" "), TEXT(""));
 
-	//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	//						   IP 4 Parts
-
-	//String Parts
 	TArray<FString> Parts;
 	TheIP.ParseIntoArray(Parts, TEXT("."), true);
 	if (Parts.Num() != 4)
 		return false;
 
-	//String to Number Parts
 	for (int32 i = 0; i < 4; ++i)
 	{
 		Out[i] = FCString::Atoi(*Parts[i]);
@@ -100,7 +84,7 @@ bool AActorTCP::FormatIP4ToNumber(const FString& TheIP, uint8(&Out)[4])
 
 	return true;
 }
-//Rama's Create TCP Connection Listener
+
 FSocket* AActorTCP::CreateTCPConnectionListener(const FString& YourChosenSocketName, const FString& TheIP, const int32 ThePort, const int32 ReceiveBufferSize)
 {
 	uint8 IP4Nums[4];
@@ -109,49 +93,44 @@ FSocket* AActorTCP::CreateTCPConnectionListener(const FString& YourChosenSocketN
 		return false;
 	}
 
-	//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-	//Create Socket
-	FIPv4Endpoint Endpoint(FIPv4Address(IP4Nums[0], IP4Nums[1], IP4Nums[2], IP4Nums[3]), ThePort);
-	FSocket* ListenSocket = FTcpSocketBuilder(*YourChosenSocketName)
-		.AsReusable()
-		.BoundToEndpoint(Endpoint)
-		.Listening(8);
-
-	//Set Buffer Size
-	int32 NewSize = 0;
-	ListenSocket->SetReceiveBufferSize(ReceiveBufferSize, NewSize);
-
-	//Done!
-	return ListenSocket;
+	return ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->CreateSocket(NAME_Stream, TEXT("default"), false);
 }
 //Rama's TCP Connection Listener
 void AActorTCP::TCPConnectionListener()
 {
-
-	//~~~~~~~~~~~~~
 	if (!ListenerSocket) return;
-	//~~~~~~~~~~~~~
-	//Remote address
+
 	TSharedRef<FInternetAddr> RemoteAddress = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->CreateInternetAddr();
 	bool Pending;
 
 	// handle incoming connections
 	ListenerSocket->HasPendingConnection(Pending);
 
-	if (Pending)
+	if (!ConnectionSocket)
 	{
+		// kostyle
+		uint8 IP4Nums[4];
+		FormatIP4ToNumber(IpAddress, IP4Nums);
+		FIPv4Address ip(IP4Nums[0], IP4Nums[1], IP4Nums[2], IP4Nums[3]);
+
+		TSharedRef<FInternetAddr> addr = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->CreateInternetAddr();
+		addr->SetIp(ip.Value);
+		addr->SetPort(Port);
+
+		ListenerSocket->Connect(*addr);
+		ConnectionSocket = ListenerSocket;
+
 		//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 		//Already have a Connection? destroy previous
-		if (ConnectionSocket)
-		{
-			ConnectionSocket->Close();
-			ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(ConnectionSocket);
-		}
-		//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		//if (ConnectionSocket)
+		//{
+		//	ConnectionSocket->Close();
+		//	ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(ConnectionSocket);
+		//}
+		////~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-		//New Connection receive!
-		ConnectionSocket = ListenerSocket->Accept(*RemoteAddress, TEXT("RamaTCP Received Socket Connection"));
+		////New Connection receive!
+		//ConnectionSocket = ListenerSocket->Accept(*RemoteAddress, TEXT("RamaTCP Received Socket Connection"));
 
 
 		if (ConnectionSocket != NULL)
@@ -167,20 +146,16 @@ void AActorTCP::TCPConnectionListener()
 	}
 }
 
-//Rama's String From Binary Array
 FString AActorTCP::StringFromBinaryArray(TArray<uint8> BinaryArray)
 {
-
-	//Create a string from a byte array!
-	const std::string cstr(reinterpret_cast<const char*>(BinaryArray.GetData()), BinaryArray.Num());
-
-	return FString(cstr.c_str());
+	return FString::SanitizeFloat(*reinterpret_cast<double*>(BinaryArray.GetData()));
+	//return BytesToHex(BinaryArray.GetData(), BinaryArray.Num());
 
 	//BinaryArray.Add(0); // Add 0 termination. Even if the string is already 0-terminated, it doesn't change the results.
-	// Create a string from a byte array. The string is expected to be 0 terminated (i.e. a byte set to 0).
-	// Use UTF8_TO_TCHAR if needed.
-	// If you happen to know the data is UTF-16 (USC2) formatted, you do not need any conversion to begin with.
-	// Otherwise you might have to write your own conversion algorithm to convert between multilingual UTF-16 planes.
+						// Create a string from a byte array. The string is expected to be 0 terminated (i.e. a byte set to 0).
+						// Use UTF8_TO_TCHAR if needed.
+						// If you happen to know the data is UTF-16 (USC2) formatted, you do not need any conversion to begin with.
+						// Otherwise you might have to write your own conversion algorithm to convert between multilingual UTF-16 planes.
 	//return FString(ANSI_TO_TCHAR(reinterpret_cast<const char*>(BinaryArray.GetData())));
 }
 
@@ -198,7 +173,6 @@ void AActorTCP::TCPSend(FString ToSend) {
 
 }
 
-//Rama's TCP Socket Listener
 void AActorTCP::TCPSocketListener()
 {
 	//~~~~~~~~~~~~~
